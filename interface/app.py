@@ -5,6 +5,7 @@ import json
 import time
 import os
 import uuid
+import psycopg2  # NEW: подключение к PostgreSQL
 
 # Конфигурация Kafka
 KAFKA_CONFIG = {
@@ -100,3 +101,78 @@ if st.session_state.uploaded_files:
                             st.rerun()
                 else:
                     st.error("Файл не содержит данных")
+
+
+# NEW: просмотр результатов скоринга из PostgreSQL
+st.divider()
+st.title("📊 Результаты обнаружения мошенничества")
+
+if st.button("Посмотреть результаты"):
+    try:
+        # NEW: подключение к базе данных
+        conn = psycopg2.connect(
+            host=os.getenv("POSTGRES_HOST", "postgres"),
+            port=os.getenv("POSTGRES_PORT", "5432"),
+            dbname=os.getenv("POSTGRES_DB", "fraud_db"),
+            user=os.getenv("POSTGRES_USER", "fraud_user"),
+            password=os.getenv("POSTGRES_PASSWORD", "fraud_password"),
+            connect_timeout=5,
+        )
+
+        try:
+            with conn.cursor() as cur:
+                # NEW: последние 10 мошеннических транзакций
+                cur.execute("""
+                    SELECT transaction_id, score, fraud_flag, created_at
+                    FROM transaction_scores
+                    WHERE fraud_flag = 1
+                    ORDER BY created_at DESC
+                    LIMIT 10
+                """)
+                fraud_rows = cur.fetchall()
+                fraud_columns = [desc[0] for desc in cur.description]
+
+                # NEW: оценки последних 100 транзакций
+                cur.execute("""
+                    SELECT transaction_id, score, fraud_flag, created_at
+                    FROM transaction_scores
+                    ORDER BY created_at DESC
+                    LIMIT 100
+                """)
+                score_rows = cur.fetchall()
+                score_columns = [desc[0] for desc in cur.description]
+
+            # NEW: показываем найденные мошеннические транзакции
+            st.subheader("🚨 Последние мошеннические транзакции")
+            if fraud_rows:
+                fraud_df = pd.DataFrame(
+                    fraud_rows, columns=fraud_columns
+                )
+                st.dataframe(fraud_df, use_container_width=True)
+            else:
+                st.info("Мошеннических транзакций пока нет.")
+
+            # NEW: строим гистограмму оценок
+            st.subheader("📈 Распределение оценок последних транзакций")
+            if score_rows:
+                scores_df = pd.DataFrame(
+                    score_rows, columns=score_columns
+                )
+                st.caption(
+                    f"Количество транзакций: {len(scores_df)}"
+                )
+                score_bins = pd.cut(scores_df["score"], bins=20)
+                histogram = score_bins.value_counts(sort=False)
+                histogram.index = [
+                    f"{interval.left:.2f}–{interval.right:.2f}"
+                    for interval in histogram.index
+                ]
+                st.bar_chart(histogram)
+            else:
+                st.info("В базе данных пока нет результатов скоринга.")
+
+        finally:
+            conn.close()
+
+    except Exception as e:
+        st.error(f"Ошибка получения результатов: {e}")

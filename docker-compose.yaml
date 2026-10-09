@@ -72,6 +72,49 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
 
+  # NEW PostgreSQL сервис
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: fraud_db
+      POSTGRES_USER: fraud_user
+      POSTGRES_PASSWORD: fraud_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ml-scorer
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U fraud_user -d fraud_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # NEW postgres записи
+
+  postgres_writer:
+    build: ./postgres_writer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_SCORING_TOPIC: "scoring"
+      KAFKA_GROUP_ID: "postgres-writer"
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "fraud_db"
+      POSTGRES_USER: "fraud_user"
+      POSTGRES_PASSWORD: "fraud_password"
+    networks:
+      - ml-scorer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   fraud_detector:
     build: ./fraud_detector
     networks:
@@ -91,6 +134,12 @@ services:
     environment:
       KAFKA_BROKERS: "kafka:9092"  # Используем внутренний адрес Kafka
       KAFKA_TOPIC: "transactions"
+      # NEW: настройки подключения к PostgreSQL
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "fraud_db"
+      POSTGRES_USER: "fraud_user"
+      POSTGRES_PASSWORD: "fraud_password"
     depends_on:
       - kafka
     ports:
@@ -100,3 +149,7 @@ networks:
   ml-scorer:
     name: ml-scorer
     driver: bridge
+
+# NEW хранилище
+volumes:
+  postgres_data:

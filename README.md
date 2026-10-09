@@ -26,10 +26,24 @@ DISCLAIMER
    - Производит скоринг с порогом 0.98.
    - Выгружает результат скоринга в топик kafka `scoring`
 
-3. **Kafka Infrastructure**:
+3. **`Kafka Infrastructure`**:
    - Zookeeper + Kafka брокер
    - `kafka-setup`: автоматически создает топики `transactions` и `scoring`
    - Kafka UI: веб-интерфейс для мониторинга сообщений (порт 8080)
+
+4. **`postgres`** и **`postgres_writer`** (хранение результатов):
+
+   * PostgreSQL хранит результаты скоринга в таблице `transaction_scores`.
+   * `postgres_writer` читает сообщения из топика `scoring` и сохраняет `transaction_id`, `score`, `fraud_flag` и время записи.
+   * Идентификатор транзакции используется как первичный ключ.
+   * Данные сохраняются в Docker volume `postgres_data`.
+
+5. **`Просмотр результатов в Streamlit`**:
+
+   * Кнопка «Посмотреть результаты» загружает данные из PostgreSQL.
+   * Отображаются последние 10 транзакций с `fraud_flag = 1`, если они есть.
+   * Гистограмма показывает распределение оценок `score` для последних 100 транзакций или всех доступных, если их меньше.
+
 
 ## 🚀 Быстрый старт
 
@@ -38,19 +52,35 @@ DISCLAIMER
 - Docker Compose 2.0+
 
 ### Запуск
-```bash
-git clone https://github.com/your-repo/fraud-detection-system.git
-cd fraud-detection-system
 
-# Сборка и запуск всех сервисов
-docker-compose up --build
+Из корневой папки проекта выполните:
+
+```bash
+docker compose up --build
 ```
+
+Docker Compose соберёт необходимые образы и запустит сервисы.
+
 После запуска:
-- **Streamlit UI**: http://localhost:8501
-- **Kafka UI**: http://localhost:8080
-- **Логи сервисов**: 
-  ```bash
-  docker-compose logs <service_name>  # Например: fraud_detector, kafka, interface
+
+* **Streamlit UI**: http://localhost:8501
+* **Kafka UI**: http://localhost:8080
+
+Для просмотра логов:
+
+```bash
+docker compose logs -f fraud_detector
+docker compose logs -f postgres_writer
+```
+
+Для остановки сервисов:
+
+```bash
+docker compose down
+```
+
+Данные PostgreSQL хранятся в Docker volume `postgres_data` и сохраняются после остановки контейнеров.
+
 
 ## 🛠️ Использование
 
@@ -64,9 +94,22 @@ docker-compose up --build
     ```
  - Для первых тестов рекомендуется загружать небольшой семпл данных (до 100 транзакций) за раз, чтобы исполнение кода не заняло много времени.
 
-### 2. Мониторинг:
- - **Kafka UI**: Просматривайте сообщения в топиках transactions и scoring
- - **Логи обработки**: /app/logs/service.log внутри контейнера fraud_detector
+### 2. Мониторинг
+
+* **Kafka UI**: просмотр сообщений в топиках `transactions` и `scoring`.
+
+* **Логи обработки**:
+
+  ```bash
+  docker compose logs -f fraud_detector
+  ```
+
+* **Логи сохранения результатов**:
+
+  ```bash
+  docker compose logs -f postgres_writer
+  ```
+
 
 ### 3. Результаты:
 
@@ -81,16 +124,32 @@ docker-compose up --build
 ## Структура проекта
 ```
 .
-├── fraud_detector/
-│   ├── preprocessing.py    # Логика препроцессинга
-│   ├── scorer.py           # ML-модель и предсказания
-│   ├── app.py              # Kafka Consumer/Producer
-│   └── Dockerfile
-├── interface/
-│   └── app.py              # Streamlit UI
 ├── docker-compose.yaml
-└── README.md
+├── README.md
+├── fraud_detector/
+│   ├── app/
+│   │   └── app.py
+│   ├── src/
+│   │   ├── preprocessing.py
+│   │   └── scorer.py
+│   ├── models/
+│   │  
+ └── my_catboost.cbm
+│   ├── train_data/
+│   │   └── train.csv
+│   ├── Dockerfile
+│   └── requirements.txt
+├── interface/
+│   ├── app.py
+│   ├── Dockerfile
+│   └── requirements.txt
+└── postgres_writer/
+    ├── app/
+    │   └── writer.py
+    ├── Dockerfile
+    └── requirements.txt
 ```
+
 
 ## Настройки Kafka
 ```yml

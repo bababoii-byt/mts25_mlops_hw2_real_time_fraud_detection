@@ -65,13 +65,17 @@ class ProcessingService:
                 processed_df = run_preproc(self.train, input_df)
                 submission = make_pred(processed_df, "kafka_stream")
 
-                # Добавляем ID в результат
-                submission['transaction_id'] = transaction_id
+                # NEW сохраняем результат
+                result = {
+                    "transaction_id": str(transaction_id),
+                    "score": float(submission["score"].iloc[0]),
+                    "fraud_flag": int(submission["fraud_flag"].iloc[0]),
+                }
 
                 # Отправка результата в топик scoring
                 self.producer.produce(
-                    'scoring',
-                    value=submission.to_json(orient='records')
+                    SCORING_TOPIC,
+                    value=json.dumps(result).encode("utf-8")
                 )
                 self.producer.flush()
             except Exception as e:
